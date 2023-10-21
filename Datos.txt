@@ -1,0 +1,18 @@
+int a 
+a = fsdhsfd
+
+string b 
+b = adsfads
+
+while a > 12 (
+    boolean z 
+    z = false 
+    if a < b (
+        double c    
+        c = 123.4
+    )
+
+)
+
+
+a + c
