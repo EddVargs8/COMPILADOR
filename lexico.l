@@ -36,6 +36,8 @@ ID [a-zA-Z0-9_][a-zA-Z0-9_]*
 "%" {return (PORCT);}
 "(" {return (PAR_IZ);}
 ")" {return (PAR_DE);} 
+"{" {return (COR_IZ);}
+"}" {return (COR_DE);} 
 {ASIGNACION} {return(ASIGNACION); }
 {ESTADO} {return(ESTADO); }
 {TIPODATO} { yylval.cadena = strdup(yytext); return(TIPODATO);}

@@ -195,7 +195,7 @@ void closeScope() {
 %token <cadena> ID 
 %token <cadena> TIPODATO 
 %token <cadena> NUMERO
-%token IMPRESION OP_ARITMETICO OP_RELACIONAL ESTADO LECTURA ESCRITURA CICLO OP_LOGICO PREGUNTA_CONTRARIA PREGUNTA PORCT PAR_IZ PAR_DE ASIGNACION
+%token IMPRESION OP_ARITMETICO OP_RELACIONAL ESTADO LECTURA ESCRITURA CICLO OP_LOGICO PREGUNTA_CONTRARIA PREGUNTA PORCT PAR_IZ PAR_DE COR_IZ COR_DE ASIGNACION
 %%
 
 programa : instrucciones 
@@ -271,8 +271,15 @@ aritmetica : ID OP_ARITMETICO ID { if (existeTODO($1, $3) == 0) {
                                         
                                 }
 
- }
-            ; 
+ }   
+
+expresion : termino
+          | expresion OP_ARITMETICO termino { }
+          ; 
+
+termino : NUMERO
+       | PAR_IZ expresion PAR_DE {  }
+       ;
 
 lectura : LECTURA ID {}
         ; 
@@ -289,12 +296,12 @@ declaracion : TIPODATO ID {addToSymbolTable($2, $1)}
 bloque : parte_iz parte_media parte_der
         ; 
 
-parte_iz : PAR_IZ {openScope();}
+parte_iz : COR_IZ {openScope();}
         ; 
         
 parte_media : instrucciones 
 
-parte_der : PAR_DE { // RECORRE LISTA PARA ENCONTRAR ID QUE SE CREARON EN CURRENTSCOPE
+parte_der : COR_DE { // RECORRE LISTA PARA ENCONTRAR ID QUE SE CREARON EN CURRENTSCOPE
                     SymbolEntry* currentEntry = symbolTable; 
                     SymbolEntry* temp; 
 
@@ -400,6 +407,7 @@ instruccion : aritmetica
         | preguntaIf
         | mientras
         | escritura 
+        | expresion
         ; 
 
 %%
