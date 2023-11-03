@@ -21,8 +21,60 @@ typedef struct SymbolEntry {
     struct SymbolEntry* next;  // Siguiente nodo en la lista enlazada
 } SymbolEntry;
 
+// Definición de la estructura para una instrucción de tres direcciones
+struct TACInstruction {
+    char* operation;   // Cadena que representa la operación (por ejemplo, "+", "*", "=")
+    char* result;      // Variable que recibe el resultado de la operación
+    char* operand1;    // Primer operando
+    char* operand2;    // Segundo operando (puede ser NULL si la operación es unaria)
+};
+
+struct TACList {
+    struct TACInstruction instruction;
+    struct TACList* next;
+};
+
+
+
 // Puntero al primer nodo de la tabla de símbolos
 SymbolEntry* symbolTable = NULL;
+struct TACList* head = NULL;  // Inicializa la lista vacía 
+
+void addInstructionToList(struct TACList** list, struct TACInstruction instruction) {
+    // Crear un nuevo nodo
+    struct TACList* newNode = (struct TACList*)malloc(sizeof(struct TACList));
+    newNode->instruction = instruction;
+    newNode->next = NULL;
+
+    if (*list == NULL) {
+        // Si la lista está vacía, el nuevo nodo será la cabeza de la lista
+        *list = newNode;
+    } else {
+        // Si la lista no está vacía, encontrar el último nodo y agregar el nuevo nodo al final
+        struct TACList* current = *list;
+        while (current->next != NULL) {
+            current = current->next;
+        }
+        current->next = newNode;
+    }
+}
+
+void traverseInstructionList(struct TACList* list) {
+    struct TACList* current = list;
+
+    while (current != NULL) {
+        // Acceder a la instrucción actual
+        struct TACInstruction instruction = current->instruction;
+
+        // Realizar acciones con la instrucción, por ejemplo, imprimir
+        printf("Operacion: %s, Resultado: %s, Operando1: %s, Operando2: %s\n",
+            instruction.operation, instruction.result, instruction.operand1, instruction.operand2);
+
+        // Avanzar al siguiente nodo
+        current = current->next;
+    }
+}
+
 
 SymbolEntry* findInSymbolTable(const char* name, SymbolEntry* symbolTable) {
     SymbolEntry* currentEntry = symbolTable; 
@@ -195,7 +247,9 @@ void closeScope() {
 %token <cadena> ID 
 %token <cadena> TIPODATO 
 %token <cadena> NUMERO
-%token IMPRESION OP_ARITMETICO OP_RELACIONAL ESTADO LECTURA ESCRITURA CICLO OP_LOGICO PREGUNTA_CONTRARIA PREGUNTA PORCT PAR_IZ PAR_DE COR_IZ COR_DE ASIGNACION
+%token <cadena> ESTADO
+%token <cadena> OP_RELACIONAL
+%token IMPRESION OP_ARITMETICO LECTURA ESCRITURA CICLO OP_LOGICO PREGUNTA_CONTRARIA PREGUNTA PORCT PAR_IZ PAR_DE COR_IZ COR_DE ASIGNACION
 %%
 
 programa : instrucciones 
@@ -210,7 +264,15 @@ preguntaElse : PREGUNTA_CONTRARIA bloque
                ;
 
 comparacion : ID OP_RELACIONAL ID { if (existeTODO($1, $3) == 0) {
-                                         
+                                        struct TACInstruction cmpInstruction;
+                                        char *resultado = malloc(strlen("compare") + strlen($2) + 1); // Asegúrate de asignar suficiente memoria
+                                        strcpy(resultado, "compare ");
+                                        strcat(resultado, $2);
+                                        cmpInstruction.operation = resultado;     
+                                        cmpInstruction.result = "temp1";      
+                                        cmpInstruction.operand1 = $1;     
+                                        cmpInstruction.operand2 = $3;    
+                                        addInstructionToList(&head, cmpInstruction);            
                                     }
                                     else {
                                     
@@ -221,7 +283,15 @@ comparacion : ID OP_RELACIONAL ID { if (existeTODO($1, $3) == 0) {
                                         SymbolEntry* existingEntry = findInSymbolTable($1, symbolTable);
                                             if ( (strcmp(existingEntry->type, "float") == 0) || (strcmp(existingEntry->type, "double") == 0) || (strcmp(existingEntry->type, "int") == 0) ) {
                                                 if (existingEntry->scope <= currentScope) { //Todo correcto
-                                            
+                                                    struct TACInstruction cmpInstruction;
+                                                    char *resultado = malloc(strlen("compare") + strlen($2) + 1); // Asegúrate de asignar suficiente memoria
+                                                    strcpy(resultado, "compare ");
+                                                    strcat(resultado, $2);
+                                                    cmpInstruction.operation = resultado;     
+                                                    cmpInstruction.result = "temp1";      
+                                                    cmpInstruction.operand1 = $1;     
+                                                    cmpInstruction.operand2 = $3;    
+                                                    addInstructionToList(&head, cmpInstruction); 
                                                 } else {
                                                  printf("Error: Variable %s no existe en el ambito actual. \n", existingEntry->name);
                                                     error_counter++; 
@@ -241,7 +311,15 @@ comparacion : ID OP_RELACIONAL ID { if (existeTODO($1, $3) == 0) {
             | ID OP_RELACIONAL ESTADO { if (existeID ($1) == 0) {
                                     SymbolEntry* existingEntry = findInSymbolTable($1, symbolTable);
                                     if ( (strcmp(existingEntry->type, "boolean") == 0) ) {
-                                        
+                                        struct TACInstruction cmpInstruction;
+                                        char *resultado = malloc(strlen("compare") + strlen($2) + 1); // Asegúrate de asignar suficiente memoria
+                                        strcpy(resultado, "compare ");
+                                        strcat(resultado, $2);
+                                        cmpInstruction.operation = resultado;     
+                                        cmpInstruction.result = "temp1";      
+                                        cmpInstruction.operand1 = $1;     
+                                        cmpInstruction.operand2 = $3;    
+                                        addInstructionToList(&head, cmpInstruction);
                                     }
                                     else {
                                         printf("Error de compilacion: variable %s tipos incompatibles\n", $1);
@@ -290,7 +368,16 @@ escritura : ESCRITURA ID
 mientras : CICLO comparacion bloque {}
         ; 
 
-declaracion : TIPODATO ID {addToSymbolTable($2, $1)}
+declaracion : TIPODATO ID { addToSymbolTable($2, $1); 
+                             // Crear una instrucción de declaración: int x;
+                            struct TACInstruction declarationInstruction;
+                            declarationInstruction.operation = "declare";  // Puedes usar una etiqueta como "declare" para representar declaraciones
+                            declarationInstruction.result = $2;           // Variable que se está declarando
+                            declarationInstruction.operand1 = $1;      // Tipo de la variable
+                            declarationInstruction.operand2 = NULL;        // No se utiliza en una declaración                       
+                            
+                            addInstructionToList(&head, declarationInstruction);
+                            }
         ; 
 
 bloque : parte_iz parte_media parte_der
@@ -322,7 +409,12 @@ asignacion : ID ASIGNACION ID {   SymbolEntry* existingEntry = findInSymbolTable
                                         if (existeID ($1) == 0) {
                                             SymbolEntry* existingEntry = findInSymbolTable($1, symbolTable);
                                             if ( (strcmp(existingEntry->type, "string") == 0)  ) { //Cadena con cadena
-
+                                                struct TACInstruction assignmentInstruction;
+                                                assignmentInstruction.operation = "assign";     // Operación de asignación
+                                                assignmentInstruction.result = $1;      // Variable de destino
+                                                assignmentInstruction.operand1 = $3;     // Variable fuente
+                                                assignmentInstruction.operand2 = NULL;    // No se utiliza en operación de asignación
+                                                addInstructionToList(&head, assignmentInstruction);
                                             }
                                             else {
                                                 fprintf(stderr, "Error de compilacion: variable %s tipos incompatibles\n", $1);
@@ -337,7 +429,12 @@ asignacion : ID ASIGNACION ID {   SymbolEntry* existingEntry = findInSymbolTable
                                     }
                                     else { // Son 2 ID 
                                         if (sisTipos($1, existingEntry->type) == 1) { 
-                                            // CHECAR AQUI
+                                            struct TACInstruction assignmentInstruction;
+                                            assignmentInstruction.operation = "assignment";     // Operación de asignación
+                                            assignmentInstruction.result = $1;      // Variable de destino
+                                            assignmentInstruction.operand1 = $3;     // Variable fuente
+                                            assignmentInstruction.operand2 = NULL;    // No se utiliza en operación de asignación
+                                            addInstructionToList(&head, assignmentInstruction);
                                         }
                                         else {                                        
                                          
@@ -355,7 +452,12 @@ asignacion : ID ASIGNACION ID {   SymbolEntry* existingEntry = findInSymbolTable
                                         }
                                         
                                         if (existingEntry->scope <= currentScope) { //Todo correcto
-                                            
+                                            struct TACInstruction assignmentInstruction;
+                                            assignmentInstruction.operation = "assign";     // Operación de asignación
+                                            assignmentInstruction.result = $1;      // Variable de destino
+                                            assignmentInstruction.operand1 = $3;     // Variable fuente
+                                            assignmentInstruction.operand2 = NULL;    // No se utiliza en operación de asignación
+                                            addInstructionToList(&head, assignmentInstruction);
                                         } else {
                                             printf("Error: Variable %s no existe en el ambito actual. \n", existingEntry->name);
                                             error_counter++; 
@@ -376,7 +478,12 @@ asignacion : ID ASIGNACION ID {   SymbolEntry* existingEntry = findInSymbolTable
                                     SymbolEntry* existingEntry = findInSymbolTable($1, symbolTable);
                                     if ( (strcmp(existingEntry->type, "boolean") == 0) ) {
                                         if (existingEntry->scope <= currentScope) { //Todo correcto
-                                            
+                                            struct TACInstruction assignmentInstruction;
+                                            assignmentInstruction.operation = "assign";     // Operación de asignación
+                                            assignmentInstruction.result = $1;      // Variable de destino
+                                            assignmentInstruction.operand1 = $3;     // Variable fuente
+                                            assignmentInstruction.operand2 = NULL;    // No se utiliza en operación de asignación
+                                            addInstructionToList(&head, assignmentInstruction);
                                         } else {
                                             printf("Error: Variable %s no existe en el ambito actual. \n", existingEntry->name);
                                             error_counter++; 
@@ -426,6 +533,8 @@ int main() {
     if (error_counter == 0) {
         printf("Compilacion exitosa :).\n");
     }
+
+    traverseInstructionList(head); 
 
     return 0;
 }
