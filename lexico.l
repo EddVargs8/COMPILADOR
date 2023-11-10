@@ -32,7 +32,7 @@ ID [a-zA-Z0-9_][a-zA-Z0-9_]*
 {CICLO} {return (CICLO); }
 {LECTURA} {return (LECTURA); }
 {OP_RELACIONAL} {yylval.cadena = strdup(yytext); return (OP_RELACIONAL);}
-{OP_ARITMETICO} {return (OP_ARITMETICO); }
+{OP_ARITMETICO} {yylval.cadena = strdup(yytext); return (OP_ARITMETICO); }
 "%" {return (PORCT);}
 "(" {return (PAR_IZ);}
 ")" {return (PAR_DE);} 
@@ -43,6 +43,6 @@ ID [a-zA-Z0-9_][a-zA-Z0-9_]*
 {TIPODATO} { yylval.cadena = strdup(yytext); return(TIPODATO);}
 {NUMERO}  {yylval.cadena = strdup(yytext); return NUMERO; }
 {ID} { yylval.cadena = strdup(yytext); return ID; }
-. {}
+[\r\n]
 %%
 int yywrap() {}
