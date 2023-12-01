@@ -309,7 +309,7 @@ preguntaElse : PREGUNTA_CONTRARIA bloque
                ;
 
 comparacion : ID OP_RELACIONAL ID { if (existeTODO($1, $3) == 0) {
-                                       $$ = generateInterCode($1, $2, $3);  
+                                       $$ = strcat(strcat(strdup($1),$2),strdup($3));  
                                     }
                                     else {
                                     
@@ -449,8 +449,8 @@ asignacion : ID ASIGNACION ID {   SymbolEntry* existingEntry = findInSymbolTable
                                         if (existeID ($1) == 0) {
                                             SymbolEntry* existingEntry = findInSymbolTable($1, symbolTable);
                                             if ( (strcmp(existingEntry->type, "string") == 0)  ) { //Cadena con cadena
-                                                
-                                                
+
+                                                fprintf(outputFile, "%s = %s\n", $1, $3); 
                                             }
                                             else {
                                                 fprintf(stderr, "Error de compilacion: variable %s tipos incompatibles\n", $1);
@@ -465,7 +465,8 @@ asignacion : ID ASIGNACION ID {   SymbolEntry* existingEntry = findInSymbolTable
                                     }
                                     else { // Son 2 ID 
                                         if (sisTipos($1, existingEntry->type) == 1) { 
-                                            
+
+                                            fprintf(outputFile, "%s = %s\n", $1, $3);    
                                         }
                                         else {                                        
                                          
