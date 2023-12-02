@@ -3,6 +3,10 @@
 #include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
+
+// Incluye encabezados de LLVM
+#include <llvm-c/Core.h>
+
 extern int yylineno; // Variable global para el número de línea
 extern char* yytext; // Variable global para el texto del token
 int yylex();
@@ -14,6 +18,42 @@ int currentScope = 0; // Contador para llevar un seguimiento de los ámbitos
 int tempVarCounter = 1; // Contador de variables temporales 
 int labelCounter = 1; 
 int esCiclo = 0; 
+// Declarar el context global
+LLVMContextRef globalContext; 
+// Declarar el builder global
+LLVMBuilderRef globalBuilder;
+// Declarar el bloque básico de entrada 
+LLVMBasicBlockRef entryBlock; 
+
+LLVMModuleRef createModule() {
+    // Crear un módulo LLVM
+    LLVMModuleRef module = LLVMModuleCreateWithName("miModulo");
+
+    // Crear un tipo de función que devuelve un entero y no tiene parámetros
+    LLVMTypeRef returnType = LLVMInt32TypeInContext(globalContext);
+    LLVMTypeRef paramTypes[] = {};
+    LLVMTypeRef functionType = LLVMFunctionType(returnType, paramTypes, 0, 0);
+
+    // Crear la función en el módulo (puedes ajustar el nombre según tus necesidades)
+    LLVMValueRef entryFunction = LLVMAddFunction(module, "main", functionType);
+
+    // Crear un bloque básico en la función
+    entryBlock = LLVMAppendBasicBlock(entryFunction, "entry");
+
+    // Configurar el punto de inserción para las instrucciones
+    globalBuilder = LLVMCreateBuilderInContext(globalContext);
+    LLVMPositionBuilderAtEnd(globalBuilder, entryBlock);
+    
+    return module;
+}
+
+LLVMValueRef declareVariable(LLVMTypeRef type, const char *name) {
+    LLVMValueRef variable = LLVMBuildAlloca(globalBuilder, type, name);
+    return variable;
+}
+
+
+
 
 // Estructura para una entrada de tabla de símbolos
 typedef struct SymbolEntry {
@@ -297,9 +337,8 @@ void closeScope() {
 %type <cadena> stmt assignment arith_expr term factor instruccion instrucciones comparacion declaracion parte_media bloque mientrasToken
 %%
 
-programa : instrucciones {}
+programa : instrucciones {   }
         ; 
-
 preguntaIf : PREGUNTA comparacion bloque preguntaElse {}
             ;
 
@@ -405,15 +444,18 @@ mientras : mientrasToken bloque {
         ; 
 
 declaracion : TIPODATO ID { addToSymbolTable($2, $1); 
-                                if (esCiclo == 1) {
-                                    struct TACInstruction insDecl;
-                                    insDecl.instruccion = createDeclaration($1, $2);
-                                    addInstructionToList(&head, insDecl);
-                                }
-                                else {
-                                    fprintf(outputFile, "%s %s\n", $1, $2); 
-                                }
+                            if (strcmp($1, "int") == 0) {
+                                // Instrucción: Declaración de variable
+                                LLVMTypeRef intType = LLVMInt32TypeInContext(globalContext);
+                                LLVMValueRef myVariable = declareVariable(intType, $2);
+                            } else if (strcmp($1, "double") == 0) {
+                                LLVMTypeRef doubleType = LLVMDoubleTypeInContext(globalContext);
+                                LLVMValueRef myVariable = declareVariable(doubleType, $2);
+                            } else if (strcmp($1, "string") == 0) {
+                                LLVMTypeRef stringType = LLVMPointerType(LLVMInt8TypeInContext(globalContext), 0);
+                                LLVMValueRef myVariable = declareVariable(stringType, $2);
                             }
+                        }
         ; 
 
 bloque : parte_iz parte_media parte_der {         
@@ -587,32 +629,57 @@ instruccion : aritmetica
 %%
 
 int main() {
+    // Abrir el archivo de entrada
     FILE* inputFile = fopen("Datos.txt", "r");
     if (!inputFile) {
-        printf("Error al abrir el archivo de entrada.\n");
+        perror("Error al abrir el archivo de entrada");
         return 1;
     }
-    // Abre el archivo de salida para escribir
-    outputFile = fopen("intermedio.txt", "w");
-    if (outputFile == NULL) {
+
+    // Abrir el archivo de salida para escribir
+    FILE* outputFile = fopen("intermedio.txt", "w");
+    if (!outputFile) {
         perror("Error al abrir el archivo de salida");
-        exit(EXIT_FAILURE);
+        fclose(inputFile);  // Cerrar el archivo de entrada antes de salir
+        return 1;
     }
 
+    // Configurar el analizador léxico para leer desde el archivo de entrada
     yyin = inputFile;
+
+    // Crear el contexto LLVM (global)
+    globalContext = LLVMGetGlobalContext();
+    // Crear el módulo
+    LLVMModuleRef module = createModule();
+    // Analizar el código fuente
     yyparse();
     
-    fclose(inputFile);
-
-    fclose(outputFile);
-
-
+    // Verificar si hubo errores durante el análisis
     if (error_counter == 0) {
-        printf("\nCompilacion exitosa :).");
+        printf("\nCompilacion exitosa :).\n");
+        // Agregar la instrucción ret al final del bloque
+        LLVMPositionBuilderAtEnd(globalBuilder, entryBlock);
+        LLVMTypeRef returnType = LLVMInt32TypeInContext(globalContext);
+        LLVMBuildRet(globalBuilder, LLVMConstInt(returnType, 69, 0));
+        // Especificar el target triple
+        LLVMSetTarget(module, "x86_64-pc-linux-gnu");
+        // Agregar la instrucción ret al final del bloque  
+        // Redirigir la salida estándar al archivo "salida.ll"
+        freopen("salida.ll", "w", stdout);
+
+        // Imprimir el IR generado en el archivo
+        char *irCode = LLVMPrintModuleToString(module);
+        printf("%s\n", irCode);
+        LLVMDisposeMessage(irCode);
     }
+
+    // Cerrar archivos antes de salir
+    fclose(inputFile);
+    fclose(outputFile);
 
     return 0;
 }
+
 
 
 void yyerror(const char *msg) {
