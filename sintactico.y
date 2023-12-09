@@ -6,6 +6,10 @@
 
 // Incluye encabezados de LLVM
 #include <llvm-c/Core.h>
+#include <llvm-c/Analysis.h>
+#include <llvm-c/ExecutionEngine.h>
+#include <stdio.h>
+#include <stdbool.h>
 
 extern int yylineno; // Variable global para el número de línea
 extern char* yytext; // Variable global para el texto del token
@@ -18,12 +22,24 @@ int currentScope = 0; // Contador para llevar un seguimiento de los ámbitos
 int tempVarCounter = 1; // Contador de variables temporales 
 int labelCounter = 1; 
 int esCiclo = 0; 
+
 // Declarar el context global
 LLVMContextRef globalContext; 
 // Declarar el builder global
 LLVMBuilderRef globalBuilder;
+LLVMBuilderRef loopBuilder;
 // Declarar el bloque básico de entrada 
 LLVMBasicBlockRef entryBlock; 
+// Declarar el módulo LLVM global
+LLVMModuleRef module;
+// Declarar la función actual
+LLVMValueRef entryFunction; 
+LLVMValueRef globalCondition = NULL;
+//Bloques para while 
+LLVMBasicBlockRef loopConditionBlock;
+LLVMBasicBlockRef loopBodyBlock; 
+LLVMBasicBlockRef exitBlock; 
+
 
 LLVMModuleRef createModule() {
     // Crear un módulo LLVM
@@ -35,7 +51,7 @@ LLVMModuleRef createModule() {
     LLVMTypeRef functionType = LLVMFunctionType(returnType, paramTypes, 0, 0);
 
     // Crear la función en el módulo (puedes ajustar el nombre según tus necesidades)
-    LLVMValueRef entryFunction = LLVMAddFunction(module, "main", functionType);
+    entryFunction = LLVMAddFunction(module, "main", functionType);
 
     // Crear un bloque básico en la función
     entryBlock = LLVMAppendBasicBlock(entryFunction, "entry");
@@ -43,16 +59,104 @@ LLVMModuleRef createModule() {
     // Configurar el punto de inserción para las instrucciones
     globalBuilder = LLVMCreateBuilderInContext(globalContext);
     LLVMPositionBuilderAtEnd(globalBuilder, entryBlock);
-    
+
     return module;
 }
 
-LLVMValueRef declareVariable(LLVMTypeRef type, const char *name) {
-    LLVMValueRef variable = LLVMBuildAlloca(globalBuilder, type, name);
-    return variable;
+LLVMValueRef declareGlobalVariable(LLVMModuleRef module, LLVMTypeRef type, const char *name) {
+    // Crear una variable global en el módulo
+    LLVMValueRef globalVariable = LLVMAddGlobal(module, type, name);
+    return globalVariable;
+}
+
+void generarAsignacion(const char *identificador, LLVMValueRef expresionValue) {
+    // Buscar la variable en el módulo (suponiendo que ya se declaró)
+    LLVMValueRef variable = LLVMGetNamedGlobal(module, identificador);
+
+    // Verificar si la variable existe
+    if (!variable) {
+        fprintf(stderr, "Error: Variable %s no declarada\n", identificador);
+        exit(EXIT_FAILURE);
+    }
+
+    // Generar código LLVM IR para la asignación
+    LLVMBuildStore(globalBuilder, expresionValue, variable);
 }
 
 
+void generatePrintCode(const char *stringToPrint) {
+    // Verificar si la función puts ya existe en el módulo
+    LLVMValueRef putsFunction = LLVMGetNamedFunction(module, "puts");
+
+    // Si no existe, agregar la función al módulo
+    if (!putsFunction) {
+        // Obtener el tipo de la función puts
+        LLVMTypeRef putsParams[] = { LLVMPointerType(LLVMInt8Type(), 0) };
+        LLVMTypeRef putsType = LLVMFunctionType(LLVMInt32Type(), putsParams, 1, 0);
+
+        putsFunction = LLVMAddFunction(module, "puts", putsType);
+    }
+
+    // Crear un valor constante con la cadena a imprimir
+    LLVMValueRef stringConstant = LLVMBuildGlobalStringPtr(globalBuilder, stringToPrint, "stringConstant");
+    if (esCiclo == 1) {
+        LLVMPositionBuilderAtEnd(globalBuilder, loopBodyBlock);
+        LLVMBuildCall(globalBuilder, putsFunction, &stringConstant, 1, "");
+    } else {
+        LLVMBuildCall(globalBuilder, putsFunction, &stringConstant, 1, "");
+    }
+}
+
+void generatePrintFCode(LLVMValueRef myVariable) {
+    // Verificar si la función printf ya existe en el módulo
+    LLVMValueRef printfFunction = LLVMGetNamedFunction(module, "printf");
+
+    // Si no existe, agregar la función al módulo
+    if (!printfFunction) {
+    // Obtener el tipo de la función printf
+    LLVMTypeRef printfParams[] = { LLVMPointerType(LLVMInt8Type(), 0) };
+    LLVMTypeRef printfType = LLVMFunctionType(LLVMInt32Type(), printfParams, 1, 1);
+    printfFunction = LLVMAddFunction(module, "printf", printfType);
+    }
+
+    // Crear un formato de cadena para imprimir el valor
+    const char *formatString = "%s\n";
+
+    // Crear un valor constante con el formato de cadena
+    LLVMValueRef formatConstant = LLVMBuildGlobalStringPtr(globalBuilder, formatString, "formatString");
+    // Cargar el valor de la variable global
+    LLVMValueRef loadedValue = LLVMBuildLoad(globalBuilder, myVariable, "loadedValue");
+    // Llamar a la función printf para imprimir el valor
+    LLVMValueRef printfArgs[] = { formatConstant, loadedValue };
+    LLVMBuildCall(globalBuilder, printfFunction, printfArgs, 2, "");
+}
+
+void generatePrintFCodeInt(LLVMValueRef myVariable) {
+    // Verificar si la función printf ya existe en el módulo
+    LLVMValueRef printfFunction = LLVMGetNamedFunction(module, "printf");
+
+    // Si no existe, agregar la función al módulo
+    if (!printfFunction) {
+        // Obtener el tipo de la función printf
+        LLVMTypeRef printfParams[] = { LLVMPointerType(LLVMInt8Type(), 0) };
+        LLVMTypeRef printfType = LLVMFunctionType(LLVMInt32Type(), printfParams, 1, 1);
+        printfFunction = LLVMAddFunction(module, "printf", printfType);
+    }
+
+    // Crear un formato de cadena para imprimir el valor entero
+    const char *formatString = "El valor del entero es: %d\n";
+
+    // Crear un valor constante con el formato de cadena
+    LLVMValueRef formatConstant = LLVMBuildGlobalStringPtr(globalBuilder, formatString, "formatString");
+
+    // Cargar el valor de la variable global
+    LLVMValueRef loadedValue = LLVMBuildLoad(globalBuilder, myVariable, "loadedValue");
+
+    // Llamar a la función printf para imprimir el valor
+    LLVMValueRef printfArgs[] = { formatConstant, loadedValue };
+
+    LLVMBuildCall(globalBuilder, printfFunction, printfArgs, 2, "");
+}
 
 
 // Estructura para una entrada de tabla de símbolos
@@ -332,9 +436,10 @@ void closeScope() {
 %token <cadena> ESTADO
 %token <cadena> OP_RELACIONAL
 %token <cadena> OP_ARITMETICO
-%token IMPRESION  LECTURA ESCRITURA CICLO OP_LOGICO PREGUNTA_CONTRARIA PREGUNTA PORCT PAR_IZ PAR_DE COR_IZ COR_DE ASIGNACION
+%token <cadena> IMPRESION 
+%token INCREMENTO LECTURA ESCRITURA CICLO OP_LOGICO PREGUNTA_CONTRARIA PREGUNTA PORCT PAR_IZ PAR_DE COR_IZ COR_DE ASIGNACION
 %left OP_ARITMETICO
-%type <cadena> stmt assignment arith_expr term factor instruccion instrucciones comparacion declaracion parte_media bloque mientrasToken
+%type <cadena> instruccion instrucciones declaracion parte_media bloque comparacion mientrasToken
 %%
 
 programa : instrucciones {   }
@@ -348,7 +453,7 @@ preguntaElse : PREGUNTA_CONTRARIA bloque
                ;
 
 comparacion : ID OP_RELACIONAL ID { if (existeTODO($1, $3) == 0) {
-                                       $$ = strcat(strcat(strdup($1),$2),strdup($3));  
+                                        
                                     }
                                     else {
                                     
@@ -360,6 +465,27 @@ comparacion : ID OP_RELACIONAL ID { if (existeTODO($1, $3) == 0) {
                                             if ( (strcmp(existingEntry->type, "float") == 0) || (strcmp(existingEntry->type, "double") == 0) || (strcmp(existingEntry->type, "int") == 0) ) {
                                                 if (existingEntry->scope <= currentScope) { //Todo correcto
                                                     
+                                                    
+                                                    const char* constVariableName = $1;
+                                                    // Buscar la variable en el módulo (suponiendo que ya se declaró)
+                                                    LLVMValueRef variable = LLVMGetNamedGlobal(module, constVariableName);
+                                                    if (variable == NULL) {
+                                                        fprintf(stderr, "Error: Variable %s has not been declared.\n", $1);
+                                                    } else {
+                                                        LLVMPositionBuilderAtEnd(globalBuilder, loopConditionBlock);
+                                                        LLVMValueRef loadedValue = LLVMBuildLoad(globalBuilder, variable, "loadedValue");
+                                                        LLVMValueRef leftExpr = loadedValue;
+                                                        char* numeroStr = $3;
+                                                        LLVMValueRef rightExpr = LLVMConstIntOfString(LLVMInt32TypeInContext(globalContext), numeroStr, 10);
+                                                        // Dependiendo del operador, realiza la comparación
+                                                        if (strcmp($2, "==") == 0) {
+                                                            
+                                                            globalCondition = LLVMBuildICmp(globalBuilder, LLVMIntEQ, leftExpr, rightExpr, "cmpResult"); 
+                                                        } else if (strcmp($2, "<") == 0) {
+                                                            LLVMPositionBuilderAtEnd(globalBuilder, loopConditionBlock);
+                                                            globalCondition = LLVMBuildICmp(globalBuilder, LLVMIntULT, leftExpr, rightExpr, "cmpResult"); 
+                                                        } 
+                                                    }  
                                                 } else {
                                                  printf("Error: Variable %s no existe en el ambito actual. \n", existingEntry->name);
                                                     error_counter++; 
@@ -414,47 +540,87 @@ aritmetica : ID OP_ARITMETICO ID { if (existeTODO($1, $3) == 0) {
 lectura : LECTURA ID {}
         ; 
 
-escritura : ESCRITURA ID 
+escritura : ESCRITURA ID {}
         ; 
+impresion : IMPRESION OP_ARITMETICO ID OP_ARITMETICO {
+            const char* constVariableName = $3;
+            // Buscar la variable en el módulo (suponiendo que ya se declaró)
+            LLVMValueRef variable = LLVMGetNamedGlobal(module, constVariableName);
+            if (variable != NULL) {
+                SymbolEntry* existingEntry = findInSymbolTable($3, symbolTable);
+                if ((strcmp(existingEntry->type, "int") == 0)) {
+                    if (esCiclo == 1) {
+                        LLVMPositionBuilderAtEnd(globalBuilder, loopBodyBlock); 
+                        generatePrintFCodeInt(variable);      
+                    } else {
+                        generatePrintFCodeInt(variable);           
+                    }   
+                } else if ((strcmp(existingEntry->type, "string") == 0)) {
+                    if (esCiclo == 1) {
+                        LLVMPositionBuilderAtEnd(globalBuilder, loopBodyBlock); 
+                        generatePrintFCode(variable);      
+                    } else {
+                        generatePrintFCode(variable);           
+                    }
+                    generatePrintFCode(variable);
+                }
+                
+            } else {
+                if (esCiclo == 1) {
+                        LLVMPositionBuilderAtEnd(globalBuilder, loopBodyBlock); 
+                        generatePrintCode($3);      
+                    } else {
+                        generatePrintCode($3);           
+                    }
+                
+            }   
+             
+}   
+        ;
 
-mientrasToken : CICLO comparacion {
-        esCiclo = 1;
-        $$ = $2; 
+mientrasToken : CICLO {
+        loopConditionBlock = LLVMAppendBasicBlock(entryFunction, "loopCondition");
+        loopBodyBlock = LLVMAppendBasicBlock(entryFunction, "loopBody");
+        exitBlock = LLVMAppendBasicBlock(entryFunction, "exit");
+        esCiclo = 1; 
     } 
     ; 
 
-mientras : mientrasToken bloque { 
-        char* whileStartLabel = createNewLabel();
-        char* whileEndLabel = createNewLabel();
-        fprintf(outputFile, "%s: ", whileStartLabel);
-        fprintf(outputFile, "if %s goto %s\n", $1, whileEndLabel);
-        fprintf(outputFile, "goto L%d\n", labelCounter);
-        fprintf(outputFile, "%s: ", whileEndLabel); 
-            // Cuerpo del bucle
-        traverseInstructionList(head); 
+mientras : mientrasToken comparacion bloque { 
+        LLVMPositionBuilderAtEnd(globalBuilder, entryBlock);
+        // Saltar al bloque de condición del bucle
+        LLVMBuildBr(globalBuilder, loopConditionBlock);
 
-        fprintf(outputFile, "goto %s\n", whileStartLabel);
-        esCiclo = 0; 
-        char* OutOfWhileLabel = createNewLabel();
-        fprintf(outputFile, "%s: ", OutOfWhileLabel);
+        // Bloque de condición del bucle
+        LLVMPositionBuilderAtEnd(globalBuilder, loopConditionBlock);
+        LLVMBuildCondBr(globalBuilder, globalCondition, loopBodyBlock, exitBlock);
+        // Salto de regreso al bloque de condición del bucle
+        LLVMPositionBuilderAtEnd(globalBuilder, loopBodyBlock);
+        LLVMBuildBr(globalBuilder, loopConditionBlock);
+
+        // Bloque de salida del bucle
+        LLVMPositionBuilderAtEnd(globalBuilder, exitBlock);
         
-        free(whileStartLabel);
-        free(whileEndLabel);
-}
+        // Código semántico si es necesario
+        esCiclo = 0; // Restablecer la bandera
+    }
         ; 
+
 
 declaracion : TIPODATO ID { addToSymbolTable($2, $1); 
                             if (strcmp($1, "int") == 0) {
                                 // Instrucción: Declaración de variable
                                 LLVMTypeRef intType = LLVMInt32TypeInContext(globalContext);
-                                LLVMValueRef myVariable = declareVariable(intType, $2);
-                            } else if (strcmp($1, "double") == 0) {
-                                LLVMTypeRef doubleType = LLVMDoubleTypeInContext(globalContext);
-                                LLVMValueRef myVariable = declareVariable(doubleType, $2);
+                                LLVMValueRef myGlobalVariable = declareGlobalVariable(module, intType, $2);
+                            } else if (strcmp($1, "boolean") == 0) {
+                                LLVMTypeRef booleanType = LLVMInt1TypeInContext(globalContext);
+                                LLVMValueRef myGlobalVariable = declareGlobalVariable(module, booleanType, $2);
                             } else if (strcmp($1, "string") == 0) {
                                 LLVMTypeRef stringType = LLVMPointerType(LLVMInt8TypeInContext(globalContext), 0);
-                                LLVMValueRef myVariable = declareVariable(stringType, $2);
+                                LLVMValueRef myGlobalVariable = declareGlobalVariable(module, stringType, $2);
                             }
+                           
+                            
                         }
         ; 
 
@@ -491,13 +657,27 @@ asignacion : ID ASIGNACION ID {   SymbolEntry* existingEntry = findInSymbolTable
                                         if (existeID ($1) == 0) {
                                             SymbolEntry* existingEntry = findInSymbolTable($1, symbolTable);
                                             if ( (strcmp(existingEntry->type, "string") == 0)  ) { //Cadena con cadena
+                                                const char* constVariableName = $1;
+                                                // Buscar la variable en el módulo (suponiendo que ya se declaró)
+                                                LLVMValueRef variable = LLVMGetNamedGlobal(module, constVariableName);
+                                                if (variable == NULL) {
+                                                    fprintf(stderr, "Error: Variable %s has not been declared.\n", $1);
+                                                } else {
+                                                    char* cadena = $3;
+                                                    // Crear un valor constante que representa la cadena
+                                                    LLVMTypeRef stringType = LLVMPointerType(LLVMInt8TypeInContext(globalContext), 0);
+                                                    LLVMValueRef expresionValue = LLVMBuildGlobalStringPtr(globalBuilder, cadena, "stringConstant");
+                                                    LLVMSetInitializer(variable, LLVMConstNull(stringType));
+                                                    LLVMSetLinkage(variable, LLVMExternalLinkage);
+                                                    // Llamar a la función para asignar el valor a la variable global
+                                                    LLVMBuildStore(globalBuilder, expresionValue, variable);
+                                                    
+                                                }
 
-                                                fprintf(outputFile, "%s = %s\n", $1, $3); 
                                             }
                                             else {
                                                 fprintf(stderr, "Error de compilacion: variable %s tipos incompatibles\n", $1);
                                                 error_counter++;
-                                                //exit(EXIT_FAILURE); 
                                             }
                                         }
                                         else {
@@ -526,7 +706,22 @@ asignacion : ID ASIGNACION ID {   SymbolEntry* existingEntry = findInSymbolTable
                                         }
                                         
                                         if (existingEntry->scope <= currentScope) { //Todo correcto
-                                            
+                                            const char* constVariableName = $1;
+                                                LLVMValueRef variable = LLVMGetNamedGlobal(module, constVariableName);
+                                                if (variable == NULL) {
+                                                    fprintf(stderr, "Error: Variable %s has not been declared.\n", $1);
+                                                } else {
+                                                    int intValue = atoi($3); // Convierte el número en cadena a un entero
+                                                    
+                                                    // Crear un valor constante que representa el entero
+                                                    LLVMTypeRef intType = LLVMInt32TypeInContext(globalContext);
+                                                    LLVMValueRef intValueConstant = LLVMConstInt(intType, intValue, 0);
+
+                                                    // Asignar el valor a la variable global
+                                                    LLVMSetInitializer(variable, intValueConstant);
+                                                    LLVMSetLinkage(variable, LLVMExternalLinkage);
+                                                }
+
                                         } else {
                                             printf("Error: Variable %s no existe en el ambito actual. \n", existingEntry->name);
                                             error_counter++; 
@@ -563,53 +758,36 @@ asignacion : ID ASIGNACION ID {   SymbolEntry* existingEntry = findInSymbolTable
                                     error_counter++;
                                 }
 
-        } 
+        }
         ;
 
-stmt: assignment
-    | arith_expr
-    ;
 
-assignment: ID ASIGNACION arith_expr {
-            // Genera una nueva variable temporal y asigna el resultado
-        char* tempVar = createTempVar(); 
-        
-        if (esCiclo == 1) { 
-            struct TACInstruction insAsigSimp;
-            insAsigSimp.instruccion = createSimpleAsignation($1, tempVarCounter-2);
-            addInstructionToList(&head, insAsigSimp);
-        } else {
-            fprintf(outputFile, "%s = t%d\n", $1, tempVarCounter-2);
-        }
-        tempVarCounter = 1; 
-        //free(tempVar); // Libera la memoria
+incremento : ID INCREMENTO { 
+                            const char* constVariableName = $1;
+                            LLVMValueRef variable = LLVMGetNamedGlobal(module, constVariableName);
+                            if (variable == NULL) {
+                                fprintf(stderr, "Error: Variable %s has not been declared.\n", $1);
+                            } else { 
+                                if (esCiclo == 1) {
+                                    LLVMPositionBuilderAtEnd(globalBuilder, loopBodyBlock);
+                                    // Cargar el valor actual de la variable
+                                    LLVMValueRef currentValue = LLVMBuildLoad(globalBuilder, variable, "currentValue");
+                                    // Incrementar el valor
+                                    LLVMValueRef incrementedValue = LLVMBuildAdd(globalBuilder, currentValue, LLVMConstInt(LLVMInt32Type(), 1, false), "incrementedValue");
+                                    // Almacenar el valor incrementado en la variable
+                                    LLVMBuildStore(globalBuilder, incrementedValue, variable);
+                                } else {
+                                    // Cargar el valor actual de la variable
+                                    LLVMValueRef currentValue = LLVMBuildLoad(globalBuilder, variable, "currentValue");
+                                    // Incrementar el valor
+                                    LLVMValueRef incrementedValue = LLVMBuildAdd(globalBuilder, currentValue, LLVMConstInt(LLVMInt32Type(), 1, false), "incrementedValue");
+                                    // Almacenar el valor incrementado en la variable
+                                    LLVMBuildStore(globalBuilder, incrementedValue, variable);
+                                    
+                                }
+                            }
     }
-    ;
-
-arith_expr: arith_expr OP_ARITMETICO term {
-            $$ = generateInterCode($1, $2, $3);
-          }
-          | term 
-          ;
-
-term: term OP_ARITMETICO factor {
-        $$ = generateInterCode($1, $2, $3);
-        if (esCiclo == 1) {
-            struct TACInstruction insAsig;
-            insAsig.instruccion = createAsignation($$, $1, $2, $3);
-            addInstructionToList(&head, insAsig);
-        } else {
-            
-        }
-    }
-    | factor
-    ;
-
-factor: NUMERO { $$ = strdup($1); }
-      | ID  { $$ = strdup($1); }
-      | PAR_IZ arith_expr PAR_DE
-      ;
-
+            ; 
 
 instrucciones : instruccion instrucciones
             | /* vacio */
@@ -623,7 +801,8 @@ instruccion : aritmetica
         | preguntaIf
         | mientras
         | escritura 
-        | stmt
+        | impresion
+        | incremento
         ; 
 
 %%
@@ -650,7 +829,7 @@ int main() {
     // Crear el contexto LLVM (global)
     globalContext = LLVMGetGlobalContext();
     // Crear el módulo
-    LLVMModuleRef module = createModule();
+    module = createModule();
     // Analizar el código fuente
     yyparse();
     
@@ -660,7 +839,11 @@ int main() {
         // Agregar la instrucción ret al final del bloque
         LLVMPositionBuilderAtEnd(globalBuilder, entryBlock);
         LLVMTypeRef returnType = LLVMInt32TypeInContext(globalContext);
-        LLVMBuildRet(globalBuilder, LLVMConstInt(returnType, 69, 0));
+        LLVMBuildRet(globalBuilder, LLVMConstInt(returnType, 0, 0));
+        // Agregar la instrucción ret al final del bloque
+        LLVMPositionBuilderAtEnd(globalBuilder, exitBlock);
+        LLVMTypeRef returnType2 = LLVMInt32TypeInContext(globalContext);
+        LLVMBuildRet(globalBuilder, LLVMConstInt(returnType2, 0, 0));
         // Especificar el target triple
         LLVMSetTarget(module, "x86_64-pc-linux-gnu");
         // Agregar la instrucción ret al final del bloque  
