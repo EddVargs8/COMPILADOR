@@ -22,12 +22,13 @@ int currentScope = 0; // Contador para llevar un seguimiento de los ámbitos
 int tempVarCounter = 1; // Contador de variables temporales 
 int labelCounter = 1; 
 int esCiclo = 0; 
-
+int esIf = 0;
+int esElse = 0;
+int creoLoop = 0;
 // Declarar el context global
 LLVMContextRef globalContext; 
 // Declarar el builder global
 LLVMBuilderRef globalBuilder;
-LLVMBuilderRef loopBuilder;
 // Declarar el bloque básico de entrada 
 LLVMBasicBlockRef entryBlock; 
 // Declarar el módulo LLVM global
@@ -39,6 +40,10 @@ LLVMValueRef globalCondition = NULL;
 LLVMBasicBlockRef loopConditionBlock;
 LLVMBasicBlockRef loopBodyBlock; 
 LLVMBasicBlockRef exitBlock; 
+//Bloques para if  
+LLVMBasicBlockRef ifBlock; 
+LLVMBasicBlockRef elseBlock;
+LLVMBasicBlockRef ifExitBlock; 
 
 
 LLVMModuleRef createModule() {
@@ -93,7 +98,6 @@ void generatePrintCode(const char *stringToPrint) {
         // Obtener el tipo de la función puts
         LLVMTypeRef putsParams[] = { LLVMPointerType(LLVMInt8Type(), 0) };
         LLVMTypeRef putsType = LLVMFunctionType(LLVMInt32Type(), putsParams, 1, 0);
-
         putsFunction = LLVMAddFunction(module, "puts", putsType);
     }
 
@@ -444,13 +448,37 @@ void closeScope() {
 
 programa : instrucciones {   }
         ; 
-preguntaIf : PREGUNTA comparacion bloque preguntaElse {}
+preguntaIf : PREGUNTA  {
+                ifBlock = LLVMAppendBasicBlock(entryFunction, "ifBlock");
+                elseBlock = LLVMAppendBasicBlock(entryFunction, "elseBlock");
+                ifExitBlock = LLVMAppendBasicBlock(entryFunction, "exitBlock");
+                esIf = 1;
+            }
             ;
 
-preguntaElse : PREGUNTA_CONTRARIA bloque
-               | PREGUNTA_CONTRARIA preguntaIf
+cuerpoIf : preguntaIf comparacion bloque preguntaElse {
+        LLVMPositionBuilderAtEnd(globalBuilder, entryBlock);
+        // Saltar al bloque de condición 
+        LLVMBuildCondBr(globalBuilder, globalCondition, ifBlock, elseBlock);
+
+        LLVMPositionBuilderAtEnd(globalBuilder, ifBlock);
+        LLVMBuildBr(globalBuilder, ifExitBlock);
+        
+        
+        LLVMPositionBuilderAtEnd(globalBuilder, ifExitBlock);
+        }
+        ; 
+
+preguntaElse : PREGUNTA_CONTRARIA {
+                    esElse = 1;
+                }
                | /* vacio */
                ;
+
+elseCuerpo : preguntaElse bloque {
+            LLVMPositionBuilderAtEnd(globalBuilder, elseBlock);
+            LLVMBuildBr(globalBuilder, ifExitBlock);
+}
 
 comparacion : ID OP_RELACIONAL ID { if (existeTODO($1, $3) == 0) {
                                         
@@ -460,7 +488,7 @@ comparacion : ID OP_RELACIONAL ID { if (existeTODO($1, $3) == 0) {
                                         
                                     }
 }
-            | ID OP_RELACIONAL NUMERO {if (existeID ($1) == 0) {
+            | ID OP_RELACIONAL NUMERO { if (existeID ($1) == 0) {
                                         SymbolEntry* existingEntry = findInSymbolTable($1, symbolTable);
                                             if ( (strcmp(existingEntry->type, "float") == 0) || (strcmp(existingEntry->type, "double") == 0) || (strcmp(existingEntry->type, "int") == 0) ) {
                                                 if (existingEntry->scope <= currentScope) { //Todo correcto
@@ -472,18 +500,25 @@ comparacion : ID OP_RELACIONAL ID { if (existeTODO($1, $3) == 0) {
                                                     if (variable == NULL) {
                                                         fprintf(stderr, "Error: Variable %s has not been declared.\n", $1);
                                                     } else {
-                                                        LLVMPositionBuilderAtEnd(globalBuilder, loopConditionBlock);
+                                                        if (esCiclo == 1) {
+                                                            LLVMPositionBuilderAtEnd(globalBuilder, loopConditionBlock);
+                                                        } 
+                                                              
                                                         LLVMValueRef loadedValue = LLVMBuildLoad(globalBuilder, variable, "loadedValue");
                                                         LLVMValueRef leftExpr = loadedValue;
                                                         char* numeroStr = $3;
                                                         LLVMValueRef rightExpr = LLVMConstIntOfString(LLVMInt32TypeInContext(globalContext), numeroStr, 10);
                                                         // Dependiendo del operador, realiza la comparación
-                                                        if (strcmp($2, "==") == 0) {
-                                                            
+                                                        if (strcmp($2, "==") == 0) {                                       
                                                             globalCondition = LLVMBuildICmp(globalBuilder, LLVMIntEQ, leftExpr, rightExpr, "cmpResult"); 
                                                         } else if (strcmp($2, "<") == 0) {
-                                                            LLVMPositionBuilderAtEnd(globalBuilder, loopConditionBlock);
                                                             globalCondition = LLVMBuildICmp(globalBuilder, LLVMIntULT, leftExpr, rightExpr, "cmpResult"); 
+                                                        } else if (strcmp($2, "<=") == 0) {
+                                                            globalCondition = LLVMBuildICmp(globalBuilder, LLVMIntULE, leftExpr, rightExpr, "cmpResult"); 
+                                                        } else if (strcmp($2, ">") == 0) {
+                                                            globalCondition = LLVMBuildICmp(globalBuilder, LLVMIntUGT, leftExpr, rightExpr, "cmpResult"); 
+                                                        } else if (strcmp($2, ">=") == 0) {
+                                                            globalCondition = LLVMBuildICmp(globalBuilder, LLVMIntUGE, leftExpr, rightExpr, "cmpResult"); 
                                                         } 
                                                     }  
                                                 } else {
@@ -500,8 +535,8 @@ comparacion : ID OP_RELACIONAL ID { if (existeTODO($1, $3) == 0) {
                                         printf("Error de compilacion, variable %s no ha sido declarada\n", $1); 
                                         error_counter++;
                                     }
-            
-}
+                        }           
+
             | ID OP_RELACIONAL ESTADO { if (existeID ($1) == 0) {
                                     SymbolEntry* existingEntry = findInSymbolTable($1, symbolTable);
                                     if ( (strcmp(existingEntry->type, "boolean") == 0) ) {
@@ -552,29 +587,44 @@ impresion : IMPRESION OP_ARITMETICO ID OP_ARITMETICO {
                     if (esCiclo == 1) {
                         LLVMPositionBuilderAtEnd(globalBuilder, loopBodyBlock); 
                         generatePrintFCodeInt(variable);      
+                    } else if (esIf == 1) {
+                        LLVMPositionBuilderAtEnd(globalBuilder, ifBlock);
+                        generatePrintFCodeInt(variable);           
+                    } else if (esElse == 1) {
+                        LLVMPositionBuilderAtEnd(globalBuilder, elseBlock);
+                        generatePrintFCodeInt(variable);           
                     } else {
                         generatePrintFCodeInt(variable);           
-                    }   
+                    }
                 } else if ((strcmp(existingEntry->type, "string") == 0)) {
                     if (esCiclo == 1) {
                         LLVMPositionBuilderAtEnd(globalBuilder, loopBodyBlock); 
                         generatePrintFCode(variable);      
+                    } else if (esIf == 1) {
+                        LLVMPositionBuilderAtEnd(globalBuilder, ifBlock); 
+                        generatePrintFCode(variable);           
+                    } else if (esElse == 1) {
+                        LLVMPositionBuilderAtEnd(globalBuilder, elseBlock);
+                        generatePrintFCode(variable);           
                     } else {
                         generatePrintFCode(variable);           
                     }
-                    generatePrintFCode(variable);
                 }
                 
             } else {
                 if (esCiclo == 1) {
                         LLVMPositionBuilderAtEnd(globalBuilder, loopBodyBlock); 
                         generatePrintCode($3);      
+                    } else if (esIf == 1) {
+                        LLVMPositionBuilderAtEnd(globalBuilder, ifBlock); 
+                        generatePrintCode($3);           
+                    } else if (esElse == 1) {
+                        LLVMPositionBuilderAtEnd(globalBuilder, elseBlock);
+                        generatePrintCode($3);           
                     } else {
                         generatePrintCode($3);           
                     }
-                
-            }   
-             
+            }            
 }   
         ;
 
@@ -583,6 +633,7 @@ mientrasToken : CICLO {
         loopBodyBlock = LLVMAppendBasicBlock(entryFunction, "loopBody");
         exitBlock = LLVMAppendBasicBlock(entryFunction, "exit");
         esCiclo = 1; 
+        creoLoop = 1;
     } 
     ; 
 
@@ -624,11 +675,12 @@ declaracion : TIPODATO ID { addToSymbolTable($2, $1);
                         }
         ; 
 
-bloque : parte_iz parte_media parte_der {         
+bloque : parte_iz parte_media parte_der {        
         }
         ; 
 
-parte_iz : COR_IZ {openScope();}
+parte_iz : COR_IZ {openScope();
+}
         ; 
         
 parte_media : instrucciones { 
@@ -649,6 +701,8 @@ parte_der : COR_DE { // RECORRE LISTA PARA ENCONTRAR ID QUE SE CREARON EN CURREN
                         currentEntry = currentEntry->next;       
                     }
                     closeScope();
+                    esIf = 0; 
+                    esElse = 0;
                     }
         ; 
 
@@ -798,8 +852,9 @@ instruccion : aritmetica
         | comparacion
         | declaracion 
         | asignacion 
-        | preguntaIf
         | mientras
+        | cuerpoIf
+        | elseCuerpo
         | escritura 
         | impresion
         | incremento
@@ -840,10 +895,16 @@ int main() {
         LLVMPositionBuilderAtEnd(globalBuilder, entryBlock);
         LLVMTypeRef returnType = LLVMInt32TypeInContext(globalContext);
         LLVMBuildRet(globalBuilder, LLVMConstInt(returnType, 0, 0));
-        // Agregar la instrucción ret al final del bloque
+        // Agregar la instrucción ret al final del bloque ciclo
         LLVMPositionBuilderAtEnd(globalBuilder, exitBlock);
-        LLVMTypeRef returnType2 = LLVMInt32TypeInContext(globalContext);
-        LLVMBuildRet(globalBuilder, LLVMConstInt(returnType2, 0, 0));
+        LLVMBuildRet(globalBuilder, LLVMConstInt(returnType, 0, 0));
+        // Agregar la instrucción ret al final del bloque if
+        LLVMPositionBuilderAtEnd(globalBuilder, ifExitBlock);
+        if (creoLoop == 1) {
+            LLVMBuildBr(globalBuilder, loopConditionBlock);
+        } else {
+            LLVMBuildRet(globalBuilder, LLVMConstInt(returnType, 0, 0));
+        }
         // Especificar el target triple
         LLVMSetTarget(module, "x86_64-pc-linux-gnu");
         // Agregar la instrucción ret al final del bloque  
