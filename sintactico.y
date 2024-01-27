@@ -1,4 +1,5 @@
 %{
+//Analizador Sintactico ; Edwin Reyes
 #include <stdio.h>
 #include <ctype.h>
 #include <stdlib.h>
@@ -172,53 +173,10 @@ typedef struct SymbolEntry {
     struct SymbolEntry* next;  // Siguiente nodo en la lista enlazada
 } SymbolEntry;
 
-// Definición de la estructura para una instrucción de codigo intermedio
-struct TACInstruction {
-    char* instruccion;  
-};
-
-struct TACList {
-    struct TACInstruction instruction;
-    struct TACList* next;
-};
-
 // Puntero al primer nodo de la tabla de símbolos
 SymbolEntry* symbolTable = NULL;
 struct TACList* head = NULL;  // Inicializa la lista vacía 
 
-void addInstructionToList(struct TACList** list, struct TACInstruction instruction) {
-    // Crear un nuevo nodo
-    struct TACList* newNode = (struct TACList*)malloc(sizeof(struct TACList));
-    newNode->instruction = instruction;
-    newNode->next = NULL;
-
-    if (*list == NULL) {
-        // Si la lista está vacía, el nuevo nodo será la cabeza de la lista
-        *list = newNode;
-    } else {
-        // Si la lista no está vacía, encontrar el último nodo y agregar el nuevo nodo al final
-        struct TACList* current = *list;
-        while (current->next != NULL) {
-            current = current->next;
-        }
-        current->next = newNode;
-    }
-}
-
-void traverseInstructionList(struct TACList* list) {
-    struct TACList* current = list;
-
-    while (current != NULL) {
-        // Acceder a la instrucción actual
-        struct TACInstruction instruction = current->instruction;
-
-        // Realizar acciones con la instrucción, por ejemplo, imprimir
-        fprintf(outputFile, "%s\n", instruction.instruccion);
-        
-        // Avanzar al siguiente nodo
-        current = current->next;
-    }
-}
 
 
 SymbolEntry* findInSymbolTable(const char* name, SymbolEntry* symbolTable) {
