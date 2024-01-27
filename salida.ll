@@ -2,7 +2,7 @@
 source_filename = "miModulo"
 target triple = "x86_64-pc-linux-gnu"
 
-@a = global i32 22
+@a = global i32 62
 @b = global i32 1
 @stringConstant = private unnamed_addr constant [6 x i8] c"Mayor\00", align 1
 @stringConstant.1 = private unnamed_addr constant [6 x i8] c"Menor\00", align 1
@@ -29,7 +29,7 @@ exitBlock:                                        ; preds = %elseBlock, %ifBlock
 
 loopCondition:                                    ; preds = %exitBlock, %loopBody, %entry
   %loadedValue1 = load i32, i32* @b, align 4
-  %cmpResult2 = icmp ule i32 %loadedValue1, 10
+  %cmpResult2 = icmp ule i32 %loadedValue1, 5
   br i1 %cmpResult2, label %loopBody, label %exit
 
 loopBody:                                         ; preds = %loopCondition
